@@ -1,0 +1,25 @@
+[Unit]
+Description=Serial Port Reader Writer Service
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/p1manipulator
+Restart=always
+User=nobody
+Group=nogroup
+Environment=READ_PORT=/dev/ttyUSB0
+Environment=READ_BAUD_RATE=9600
+Environment=READ_PARITY=none
+Environment=READ_STOP_BITS=one
+Environment=READ_DATA_BITS=8
+Environment=WRITE_PORT=/dev/ttyUSB1
+Environment=WRITE_BAUD_RATE=9600
+Environment=WRITE_PARITY=none
+Environment=WRITE_STOP_BITS=one
+Environment=WRITE_DATA_BITS=8
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=serial_read_write
+
+[Install]
+WantedBy=multi-user.target
