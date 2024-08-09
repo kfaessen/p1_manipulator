@@ -48,11 +48,11 @@ CXXFLAGS = -Wall -Wextra -std=c++11 -I$BOOST_INCLUDE_DIR
 BOOST_LIBS = $BOOST_LIBS
 
 # Bronnen en objecten
-SOURCES = main.cpp serial_reader_writer.cpp
+SOURCES = laadpaal.cpp
 OBJECTS = \$(SOURCES:.cpp=.o)
 
 # Doel
-TARGET = serial_reader_writer
+TARGET = laadpaal
 
 # Standaard regel: compileer het doel
 all: \$(TARGET)
