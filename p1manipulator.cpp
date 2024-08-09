@@ -4,7 +4,9 @@
 #include <cstdlib>
 #include <csignal>
 #include <array>
-#include <vector>
+#include <regex>
+#include <sstream>
+#include <iomanip>
 
 using namespace std;
 using namespace boost::asio;
@@ -28,8 +30,9 @@ public:
     SerialReaderWriter(io_service& io, const string& read_port, int read_baud_rate,
                        const string& write_port, int write_baud_rate,
                        const string& read_parity, const string& read_stop_bits, int read_data_bits,
-                       const string& write_parity, const string& write_stop_bits, int write_data_bits)
-        : serial_read(io, read_port), serial_write(io, write_port), timer(io, boost::posix_time::seconds(10)), io_service_(io), running(true) {
+                       const string& write_parity, const string& write_stop_bits, int write_data_bits,
+                       double current_limit, const bool& car_charging_three_phases)
+        : serial_read(io, read_port), serial_write(io, write_port), timer(io, boost::posix_time::seconds(10)), io_service_(io), running(true), current_limit_(current_limit) {
         
         serial_read.set_option(serial_port_base::baud_rate(read_baud_rate));
         serial_read.set_option(serial_port_base::character_size(read_data_bits));
@@ -42,7 +45,7 @@ public:
         serial_write.set_option(serial_port_base::parity(get_parity(write_parity)));
         serial_write.set_option(serial_port_base::stop_bits(get_stop_bits(write_stop_bits)));
         serial_write.set_option(serial_port_base::flow_control(serial_port_base::flow_control::none));
-
+        threePhases = car_charging_three_phases;
         start_read();
         start_timer();
     }
@@ -51,7 +54,8 @@ public:
         serial_read.async_read_some(buffer(buffer_read),
             [this](boost::system::error_code ec, std::size_t length) {
                 if (!ec && running) {
-                    buffer_received.insert(buffer_received.end(), buffer_read.data(), buffer_read.data() + length);
+                    string data(buffer_read.data(), length);
+                    process_received_data(data);
                     start_read();  // Start the next read operation
                 } else if (ec) {
                     cerr << "Error: " << ec.message() << endl;
@@ -65,28 +69,213 @@ public:
 
     void on_timer() {
         if (running) {
+            // Calculate generation	
+	        calc_current(threePhases);
             send_data();
+            display_table();
             timer.expires_at(timer.expires_at() + boost::posix_time::seconds(10));
             start_timer();
         }
     }
 
-    void send_data() {
-        if (!buffer_received.empty()) {
-            boost::asio::write(serial_write, boost::asio::buffer(buffer_received));
-            buffer_received.clear();
-        }
+    void process_received_data(const string& data) {
+        smatch match;
+
+        // Regular expressions to extract the additional values
+        regex regex_0_2_8(R"(1-3:0\.2\.8\(([\d\.]+)\))");
+        regex regex_1_0_0(R"(0-0:1\.0\.0\(([\d\.]+[SW])\))");
+        regex regex_96_1_1(R"(0-0:96\.1\.1\(([\d\.]+)\))");
+        regex regex_1_8_1(R"(1-0:1\.8\.1\(([\d\.]+)\*kWh\))");
+        regex regex_1_8_2(R"(1-0:1\.8\.2\(([\d\.]+)\*kWh\))");
+        regex regex_2_8_1(R"(1-0:2\.8\.1\(([\d\.]+)\*kWh\))");
+        regex regex_2_8_2(R"(1-0:2\.8\.2\(([\d\.]+)\*kWh\))");
+        regex regex_96_14_0(R"(0-0:96\.14\.0\((\d+)\))");
+        regex regex_1_7_0(R"(1-0:1\.7\.0\(([\d\.]+)\*kW\))");
+        regex regex_2_7_0(R"(1-0:2\.7\.0\(([\d\.]+)\*kW\))");
+        regex regex_96_7_21(R"(0-0:96\.7\.21\((\d+)\))");
+        regex regex_96_7_9(R"(0-0:96\.7\.9\((\d+)\))");
+        regex regex_99_97_0(R"(1-0:99\.97\.0\((.+)\))");
+        regex regex_32_32_0(R"(1-0:32\.32\.0\((\d+)\))");
+        regex regex_52_32_0(R"(1-0:52\.32\.0\((\d+)\))");
+        regex regex_72_32_0(R"(1-0:72\.32\.0\((\d+)\))");
+        regex regex_32_36_0(R"(1-0:32\.36\.0\((\d+)\))");
+        regex regex_52_36_0(R"(1-0:52\.36\.0\((\d+)\))");
+        regex regex_72_36_0(R"(1-0:72\.36\.0\((\d+)\))");
+        regex regex_32_7_0(R"(1-0:32\.7\.0\(([\d\.]+)\*V\))");
+        regex regex_52_7_0(R"(1-0:52\.7\.0\(([\d\.]+)\*V\))");
+        regex regex_72_7_0(R"(1-0:72\.7\.0\(([\d\.]+)\*V\))");
+		regex regex_31_7_0(R"(1-0:31\.7\.0\(([\d\.]+)\*A\))");
+        regex regex_51_7_0(R"(1-0:51\.7\.0\(([\d\.]+)\*A\))");
+        regex regex_71_7_0(R"(1-0:71\.7\.0\(([\d\.]+)\*A\))");
+        regex regex_21_7_0(R"(1-0:21\.7\.0\(([\d\.]+)\*kW\))");
+        regex regex_41_7_0(R"(1-0:41\.7\.0\(([\d\.]+)\*kW\))");
+        regex regex_61_7_0(R"(1-0:61\.7\.0\(([\d\.]+)\*kW\))");
+        regex regex_22_7_0(R"(1-0:22\.7\.0\(([\d\.]+)\*kW\))");
+        regex regex_42_7_0(R"(1-0:42\.7\.0\(([\d\.]+)\*kW\))");
+        regex regex_62_7_0(R"(1-0:62\.7\.0\(([\d\.]+)\*kW\))");
+
+        // Extract additional values and store them in variables
+        if (regex_search(data, match, regex_0_2_8)) value_0_2_8 = stod(match[1]);
+        if (regex_search(data, match, regex_1_0_0)) value_1_0_0 = match[1];
+        if (regex_search(data, match, regex_96_1_1)) value_96_1_1 = match[1];
+        if (regex_search(data, match, regex_1_8_1)) value_1_8_1 = stod(match[1]);
+        if (regex_search(data, match, regex_1_8_2)) value_1_8_2 = stod(match[1]);
+        if (regex_search(data, match, regex_2_8_1)) value_2_8_1 = stod(match[1]);
+        if (regex_search(data, match, regex_2_8_2)) value_2_8_2 = stod(match[1]);
+        if (regex_search(data, match, regex_96_14_0)) value_96_14_0 = stoi(match[1]);
+        if (regex_search(data, match, regex_1_7_0)) value_1_7_0 = stod(match[1]);
+        if (regex_search(data, match, regex_2_7_0)) value_2_7_0 = stod(match[1]);
+        if (regex_search(data, match, regex_96_7_21)) value_96_7_21 = stoi(match[1]);
+        if (regex_search(data, match, regex_96_7_9)) value_96_7_9 = stoi(match[1]);
+        if (regex_search(data, match, regex_99_97_0)) value_99_97_0 = match[1];
+        if (regex_search(data, match, regex_32_32_0)) value_32_32_0 = stoi(match[1]);
+        if (regex_search(data, match, regex_52_32_0)) value_52_32_0 = stoi(match[1]);
+        if (regex_search(data, match, regex_72_32_0)) value_72_32_0 = stoi(match[1]);
+        if (regex_search(data, match, regex_32_36_0)) value_32_36_0 = stoi(match[1]);
+        if (regex_search(data, match, regex_52_36_0)) value_52_36_0 = stoi(match[1]);
+        if (regex_search(data, match, regex_72_36_0)) value_72_36_0 = stoi(match[1]);
+        if (regex_search(data, match, regex_32_7_0)) value_32_7_0 = stod(match[1]);
+        if (regex_search(data, match, regex_52_7_0)) value_52_7_0 = stod(match[1]);
+        if (regex_search(data, match, regex_72_7_0)) value_72_7_0 = stod(match[1]);
+        if (regex_search(data, match, regex_31_7_0)) value_31_7_0 = min(stod(match[1]), current_limit_);
+        if (regex_search(data, match, regex_51_7_0)) value_51_7_0 = min(stod(match[1]), current_limit_);
+        if (regex_search(data, match, regex_71_7_0)) value_71_7_0 = min(stod(match[1]), current_limit_);
+        if (regex_search(data, match, regex_21_7_0)) value_21_7_0 = stod(match[1]);
+        if (regex_search(data, match, regex_41_7_0)) value_41_7_0 = stod(match[1]);
+        if (regex_search(data, match, regex_61_7_0)) value_61_7_0 = stod(match[1]);
+        if (regex_search(data, match, regex_22_7_0)) value_22_7_0 = stod(match[1]);
+        if (regex_search(data, match, regex_42_7_0)) value_42_7_0 = stod(match[1]);
+        if (regex_search(data, match, regex_62_7_0)) value_62_7_0 = stod(match[1]);
+
     }
 
-    void stop() {
-        running = false;
-        serial_read.close();
-        serial_write.close();
-        io_service_.stop();
+    double calc_generation(const double& consumption, const double& generation, const double& current, const double& initialValue, const bool& threePhase) 
+    {
+       double calcValue=0.0;
+	   double currentCalc = current;
+	   if (threePhase) {
+		   currentCalc = current / 3;
+	   }
+       if (consumption-generation > 0) {
+           calcValue = initialValue - currentCalc;
+       }
+       else if (consumption-generation < 0) {
+           calcValue = initialValue + currentCalc;
+       }
+       else {
+           calcValue = initialValue;
+       }	   
+       if (calcValue > current_limit_) {
+           calcValue = current_limit_;
+       }
+       if (calcValue < 0) {
+           calcValue = 0;
+       }
+       return calcValue;
+    }
+
+    bool is_generating(const double& generation) {
+		return (generation > 0);
+	}
+    void calc_current(const bool& threePhase) {
+        mod_31_7_0 = calc_generation(value_21_7_0 + value_41_7_0 + value_61_7_0, value_22_7_0 + value_42_7_0 + value_62_7_0, value_31_7_0 + value_51_7_0 + value_71_7_0, mod_31_7_0, threePhase);
+        mod_51_7_0 = calc_generation(value_21_7_0 + value_41_7_0 + value_61_7_0, value_22_7_0 + value_42_7_0 + value_62_7_0, value_31_7_0 + value_51_7_0 + value_71_7_0, mod_51_7_0, threePhase);
+        mod_71_7_0 = calc_generation(value_21_7_0 + value_41_7_0 + value_61_7_0, value_22_7_0 + value_42_7_0 + value_62_7_0, value_31_7_0 + value_51_7_0 + value_71_7_0, mod_71_7_0, threePhase);
+    }
+
+    void send_data() {
+        stringstream modified_telegram;
+
+        // Construct the telegram with updated values
+        modified_telegram << "/XMX5LGF0010455445332\r\n"
+                          << "1-3:0.2.8(" << value_0_2_8 << ")\r\n"
+                          << "0-0:1.0.0(" << value_1_0_0 << ")\r\n"
+                          << "0-0:96.1.1(" << value_96_1_1 << ")\r\n"
+                          << "1-0:1.8.1(" << fixed << setprecision(3) << value_1_8_1 << "*kWh)\r\n"
+                          << "1-0:1.8.2(" << fixed << setprecision(3) << value_1_8_2 << "*kWh)\r\n"
+                          << "1-0:2.8.1(" << fixed << setprecision(3) << value_2_8_1 << "*kWh)\r\n"
+                          << "1-0:2.8.2(" << fixed << setprecision(3) << value_2_8_2 << "*kWh)\r\n"
+                          << "0-0:96.14.0(" << value_96_14_0 << ")\r\n"
+                          << "1-0:1.7.0(" << fixed << setprecision(3) << value_1_7_0 << "*kW)\r\n"
+                          << "1-0:2.7.0(" << fixed << setprecision(3) << value_2_7_0 << "*kW)\r\n"
+                          << "0-0:96.7.21(" << value_96_7_21 << ")\r\n"
+                          << "0-0:96.7.9(" << value_96_7_9 << ")\r\n"
+                          << "1-0:99.97.0(" << value_99_97_0 << ")\r\n"
+                          << "1-0:32.32.0(" << value_32_32_0 << ")\r\n"
+                          << "1-0:52.32.0(" << value_52_32_0 << ")\r\n"
+                          << "1-0:72.32.0(" << value_72_32_0 << ")\r\n"
+                          << "1-0:32.36.0(" << value_32_36_0 << ")\r\n"
+                          << "1-0:52.36.0(" << value_52_36_0 << ")\r\n"
+                          << "1-0:72.36.0(" << value_72_36_0 << ")\r\n"
+                          << "1-0:32.7.0(" << fixed << setprecision(3) << value_32_7_0 << "*V)\r\n"
+                          << "1-0:52.7.0(" << fixed << setprecision(3) << value_52_7_0 << "*V)\r\n"
+                          << "1-0:72.7.0(" << fixed << setprecision(3) << value_72_7_0 << "*V)\r\n"
+                          << "1-0:31.7.0(" << fixed << setprecision(3) << current_limit_ - mod_31_7_0 << "*A)\r\n"
+                          << "1-0:51.7.0(" << fixed << setprecision(3) << current_limit_ - mod_51_7_0 << "*A)\r\n"
+                          << "1-0:71.7.0(" << fixed << setprecision(3) << current_limit_ - mod_71_7_0 << "*A)\r\n"
+                          << "1-0:21.7.0(" << fixed << setprecision(3) << value_21_7_0 << "*kW)\r\n"
+                          << "1-0:41.7.0(" << fixed << setprecision(3) << value_41_7_0 << "*kW)\r\n"
+                          << "1-0:61.7.0(" << fixed << setprecision(3) << value_61_7_0 << "*kW)\r\n"
+                          << "1-0:22.7.0(" << fixed << setprecision(3) << value_22_7_0 << "*kW)\r\n"
+                          << "1-0:42.7.0(" << fixed << setprecision(3) << value_42_7_0 << "*kW)\r\n"
+                          << "1-0:62.7.0(" << fixed << setprecision(3) << value_62_7_0 << "*kW)\r\n"
+                          << "!";
+
+        // Calculate CRC16 checksum for the message
+        string telegram_body = modified_telegram.str();
+        uint16_t crc = calculate_crc16(telegram_body);
+        stringstream checksum_stream;
+        checksum_stream << hex << uppercase << crc;
+        string checksum = checksum_stream.str();
+
+        // Add checksum to the telegram
+        telegram_body += checksum + "\r\n";
+
+        // Send the telegram
+        async_write(serial_write, buffer(telegram_body), [](boost::system::error_code ec, std::size_t length) {
+            if (ec) {
+                cerr << "Error writing to serial port: " << ec.message() << endl;
+            }
+        });
+    }
+
+    uint16_t calculate_crc16(const string& data) {
+        uint16_t crc = 0x0000;
+        for (char c : data) {
+            crc ^= static_cast<uint8_t>(c) << 8;
+            for (int i = 0; i < 8; ++i) {
+                if (crc & 0x8000) {
+                    crc = (crc << 1) ^ 0x1021;
+                } else {
+                    crc <<= 1;
+                }
+            }
+        }
+        return crc;
+    }
+
+    void display_table() {
+        system("clear"); // Clear the terminal screen
+        cout << "+-------------------+--------+--------+--------+--------+" << endl;
+        cout << "|                   | Phase 1| Phase 2| Phase 3|   Total|" << endl;
+        cout << "+-------------------+--------+--------+--------+--------+" << endl;
+        cout << "| Current (A)       | " << setw(6) << value_31_7_0 << " | " << setw(6) << value_51_7_0 << " | " << setw(6) << value_71_7_0 << " | " << setw(6) << value_31_7_0 + value_51_7_0 + value_71_7_0 << " |" << endl;
+        cout << "+-------------------+--------+--------+--------+--------+" << endl;
+        cout << "| Consumption (kW)  | " << setw(6) << value_21_7_0 << " | " << setw(6) << value_41_7_0 << " | " << setw(6) << value_61_7_0 << " | " << setw(6) << value_21_7_0 + value_41_7_0 + value_61_7_0 << " |" << endl;
+        cout << "+-------------------+--------+--------+--------+--------+" << endl;
+        cout << "| Generation (kW)   | " << setw(6) << value_22_7_0 << " | " << setw(6) << value_42_7_0 << " | " << setw(6) << value_62_7_0 << " | " << setw(6) << value_22_7_0 + value_42_7_0 + value_62_7_0 << " |" << endl;
+        cout << "+-------------------+--------+--------+--------+--------+" << endl;
+        cout << "| CurrentMod (A)    | " << setw(6) << current_limit_ - mod_31_7_0 << " | " << setw(6) << current_limit_ - mod_51_7_0 << " | " << setw(6) << current_limit_ - mod_71_7_0 << " | " << setw(6) << "" << " |" << endl;
+        cout << "+-------------------+--------+--------+--------+--------+" << endl;
     }
 
     void run() {
         io_service_.run();
+    }
+
+    void stop() {
+        running = false;
+        io_service_.stop();
     }
 
 private:
@@ -94,52 +283,92 @@ private:
     serial_port serial_write;
     deadline_timer timer;
     io_service& io_service_;
-    array<char, 1024> buffer_read;
-    vector<char> buffer_received;
+    std::array<char, 256> buffer_read;
     bool running;
+    bool threePhases = false;
+    // Variables to hold the extracted data
+    double value_0_2_8 = 0;
+    string value_1_0_0 = "";
+    string value_96_1_1 = "";
+    double value_1_8_1 = 0.000;
+    double value_1_8_2 = 0.000;
+    double value_2_8_1 = 0.000;
+    double value_2_8_2 = 0.000;
+    int value_96_14_0 = 0;
+    double value_1_7_0 = 0.000;
+    double value_2_7_0 = 0.000;
+    int value_96_7_21 = 0;
+    int value_96_7_9 = 0;
+    string value_99_97_0 = "";
+    int value_32_32_0 = 0;
+    int value_52_32_0 = 0;
+    int value_72_32_0 = 0;
+    int value_32_36_0 = 0;
+    int value_52_36_0 = 0;
+    int value_72_36_0 = 0;
+    double value_32_7_0 = 0.0;
+    double value_52_7_0 = 0.0;
+    double value_72_7_0 = 0.0;
+
+    // Variables for the table values
+    double value_31_7_0 = 0.0;
+    double value_51_7_0 = 0.0;
+    double value_71_7_0 = 0.0;
+    double mod_31_7_0 = 0.0;
+    double mod_51_7_0 = 0.0;
+    double mod_71_7_0 = 0.0;
+    double value_21_7_0 = 0.0;
+    double value_41_7_0 = 0.0;
+    double value_61_7_0 = 0.0;
+    double value_22_7_0 = 0.0;
+    double value_42_7_0 = 0.0;
+    double value_62_7_0 = 0.0;
+
+    double current_limit_;
 };
 
-SerialReaderWriter* reader_writer_ptr = nullptr;
+int main(int argc, char* argv[]) {
+    try {
+        if (argc != 13) {
+            cerr << "Usage: " << argv[0] << " <read_port> <read_baud_rate> <write_port> <write_baud_rate> "
+                 << "<read_parity> <read_stop_bits> <read_data_bits> <write_parity> <write_stop_bits> <write_data_bits> "
+                 << "<current_limit> <car_charging_phases>\n";			
+            return 1;
+        }
 
-void signal_handler(int signum) {
-    if (reader_writer_ptr != nullptr) {
-        reader_writer_ptr->stop();
+        io_service io;
+        string read_port = argv[1];
+        int read_baud_rate = stoi(argv[2]);
+        string write_port = argv[3];
+        int write_baud_rate = stoi(argv[4]);
+        string read_parity = argv[5];
+        string read_stop_bits = argv[6];
+        int read_data_bits = stoi(argv[7]);
+        string write_parity = argv[8];
+        string write_stop_bits = argv[9];
+        int write_data_bits = stoi(argv[10]);
+        double current_limit = stod(argv[11]);
+		string car_charging_phases = argv[12];
+        bool car_charging_three_phases = false;
+		if (car_charging_phases == "1 phase") car_charging_three_phases = false;
+		else if (car_charging_phases == "3 phase") car_charging_three_phases = true;
+		else throw invalid_argument("Invalid car_charging_phases option");
+        
+        SerialReaderWriter serialReaderWriter(io, read_port, read_baud_rate, write_port, write_baud_rate,
+                                              read_parity, read_stop_bits, read_data_bits,
+                                              write_parity, write_stop_bits, write_data_bits,
+                                              current_limit, car_charging_three_phases);
+
+        signal(SIGINT, [](int) {
+            cout << "Stopping..." << endl;
+            exit(0);
+        });
+
+        serialReaderWriter.run();
     }
-    exit(signum);
-}
-
-int main() {
-    const char* read_port = getenv("READ_PORT");
-    const char* read_baud_rate_str = getenv("READ_BAUD_RATE");
-    const char* write_port = getenv("WRITE_PORT");
-    const char* write_baud_rate_str = getenv("WRITE_BAUD_RATE");
-    const char* read_parity = getenv("READ_PARITY");
-    const char* read_stop_bits = getenv("READ_STOP_BITS");
-    const char* read_data_bits_str = getenv("READ_DATA_BITS");
-    const char* write_parity = getenv("WRITE_PARITY");
-    const char* write_stop_bits = getenv("WRITE_STOP_BITS");
-    const char* write_data_bits_str = getenv("WRITE_DATA_BITS");
-
-    if (!read_port || !read_baud_rate_str || !write_port || !write_baud_rate_str ||
-        !read_parity || !read_stop_bits || !read_data_bits_str || !write_parity || !write_stop_bits || !write_data_bits_str) {
-        cerr << "Environment variables READ_PORT, READ_BAUD_RATE, WRITE_PORT, WRITE_BAUD_RATE, READ_PARITY, READ_STOP_BITS, READ_DATA_BITS, WRITE_PARITY, WRITE_STOP_BITS, and WRITE_DATA_BITS must be set." << endl;
-        return 1;
+    catch (const exception& e) {
+        cerr << "Exception: " << e.what() << endl;
     }
-
-    int read_baud_rate = atoi(read_baud_rate_str);
-    int write_baud_rate = atoi(write_baud_rate_str);
-    int read_data_bits = atoi(read_data_bits_str);
-    int write_data_bits = atoi(write_data_bits_str);
-
-    io_service io;
-    SerialReaderWriter reader_writer(io, read_port, read_baud_rate, write_port, write_baud_rate, 
-                                     read_parity, read_stop_bits, read_data_bits, write_parity, write_stop_bits, write_data_bits);
-    reader_writer_ptr = &reader_writer;
-
-    signal(SIGTERM, signal_handler);
-    signal(SIGHUP, signal_handler);
-
-    reader_writer.run();
 
     return 0;
 }
