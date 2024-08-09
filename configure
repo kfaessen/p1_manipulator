@@ -41,7 +41,7 @@ echo "Boost library found"
 cat > Makefile <<EOL
 # Compiler en opties
 CXX = g++-12
-CXXFLAGS = -Wall -Wextra -std=c++11
+CXXFLAGS = -Wall -Wextra -std=c++11 -Wno-unused-parameter 
 
 # Bronnen en objecten
 SOURCES = laadpaal.cpp
