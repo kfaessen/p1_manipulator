@@ -20,7 +20,18 @@ fi
 echo "G++ compiler found"
 
 echo "Checking for Boost libraries"
-if ! pkg-config --exists boost; then
+BOOST_DIRS=("/usr/include/boost" "/usr/local/include/boost")
+
+BOOST_FOUND=false
+
+for DIR in "${BOOST_DIRS[@]}"; do
+    if [ -d "$DIR" ]; then
+        BOOST_FOUND=true
+        break
+    fi
+done
+
+if [ "$BOOST_FOUND" = false ]; then
     echo "Error: Boost library not found"
     exit 1
 fi
