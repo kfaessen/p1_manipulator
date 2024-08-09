@@ -2,7 +2,7 @@
 
 # Set default values
 CXX=g++-12
-BOOST_LIBS=-lboost_system
+BOOST_LIBS=-lboost_system -lboost_serialization
 CXXFLAGS="-std=c++11 -Wall -O2"
 OUTPUT_BINARY="serial_reader_writer"
 
