@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Set default values
-CXX=g++
+CXX=g++-12
 BOOST_LIBS=-lboost_system
-CXXFLAGS="-std=c++12 -Wall -O2"
+CXXFLAGS="-std=c++11 -Wall -O2"
 OUTPUT_BINARY="serial_reader_writer"
 
 # Function to check if a command exists
@@ -12,12 +12,14 @@ command_exists () {
 }
 
 # Check for g++
-echo "Checking for g++ compiler"
-if ! command -v g++ &> /dev/null; then
-    echo "Error: g++ compiler not found"
+echo "Checking for g++-12 compiler"
+if ! command -v g++-12 &> /dev/null
+then
+    echo "Error: g++-12 compiler not found."
     exit 1
+else
+    echo "Found g++-12 compiler"
 fi
-echo "G++ compiler found"
 
 echo "Checking for Boost libraries"
 BOOST_DIRS=("/usr/include/boost" "/usr/local/include/boost")
@@ -41,8 +43,8 @@ echo "Boost library found"
 # Maak het Makefile aan
 cat > Makefile <<EOL
 # Compiler en opties
-CXX = g++
-CXXFLAGS = -Wall -Wextra -std=c++12 -I$BOOST_INCLUDE_DIR
+CXX = g++-12
+CXXFLAGS = -Wall -Wextra -std=c++11 -I$BOOST_INCLUDE_DIR
 
 # Boost libraries
 BOOST_LIBS = $BOOST_LIBS
