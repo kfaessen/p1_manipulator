@@ -12,20 +12,20 @@ command_exists () {
 }
 
 # Check for g++
-if command_exists g++ ; then
-    echo "Found g++ compiler"
-else
+echo "Checking for g++ compiler"
+if ! command -v g++ &> /dev/null; then
     echo "Error: g++ compiler not found"
     exit 1
 fi
+echo "G++ compiler found"
 
-# Check for Boost library
-if echo "#include <boost/system/error_code.hpp>" | g++ -E - >/dev/null 2>&1 ; then
-    echo "Found Boost library"
-else
+echo "Checking for Boost libraries"
+if ! pkg-config --exists boost; then
     echo "Error: Boost library not found"
     exit 1
 fi
+
+echo "Boost library found"
 
 # Generate Makefile
 cat << EOF > Makefile
