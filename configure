@@ -3,7 +3,7 @@
 # Set default values
 CXX=g++
 BOOST_LIBS=-lboost_system
-CXXFLAGS="-std=c++11 -Wall -O2"
+CXXFLAGS="-std=c++12 -Wall -O2"
 OUTPUT_BINARY="serial_reader_writer"
 
 # Function to check if a command exists
@@ -42,7 +42,7 @@ echo "Boost library found"
 cat > Makefile <<EOL
 # Compiler en opties
 CXX = g++
-CXXFLAGS = -Wall -Wextra -std=c++11 -I$BOOST_INCLUDE_DIR
+CXXFLAGS = -Wall -Wextra -std=c++12 -I$BOOST_INCLUDE_DIR
 
 # Boost libraries
 BOOST_LIBS = $BOOST_LIBS
