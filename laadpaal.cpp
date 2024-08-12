@@ -161,7 +161,7 @@ public:
         regex regex_62_7_0(R"(1-0:62\.7\.0\(([\d\.]+)\*kW\))");
 
         // Extract additional values and store them in variables
-		if (regex_search(data, match, value_id)) value_id = match[1];
+		if (regex_search(data, match, regex_id)) value_id = match[1];
         if (regex_search(data, match, regex_0_2_8)) value_0_2_8 = stod(match[1]);
         if (regex_search(data, match, regex_1_0_0)) value_1_0_0 = match[1];
         if (regex_search(data, match, regex_96_1_1)) value_96_1_1 = match[1];
