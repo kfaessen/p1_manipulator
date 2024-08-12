@@ -1,12 +1,17 @@
-#include <iostream>
+#include <array>
 #include <boost/asio.hpp>
 #include <boost/bind/bind.hpp>
-#include <cstdlib>
+#include <cctype>
 #include <csignal>
-#include <array>
+#include <cstdlib>
+#include <iostream>
 #include <regex>
 #include <sstream>
 #include <iomanip>
+#include <vector>
+#include <fstream>
+#include <string>
+
 
 using namespace std;
 using namespace boost::asio;
@@ -24,6 +29,46 @@ serial_port_base::stop_bits::type get_stop_bits(const string& stop_bits) {
     else if (stop_bits == "two") return serial_port_base::stop_bits::two;
     else throw invalid_argument("Invalid stop bits option");
 }
+
+class Crc16 {
+private:
+    static const unsigned short polynomial = 0xA001;
+    unsigned short table[256];
+
+public:
+    Crc16() {
+        unsigned short value;
+        unsigned short temp;
+
+        for (unsigned short i = 0; i < 256; ++i) {
+            value = 0;
+            temp = i;
+            for (unsigned char j = 0; j < 8; ++j) {
+                if (((value ^ temp) & 0x0001) != 0) {
+                    value = (value >> 1) ^ polynomial;
+                } else {
+                    value >>= 1;
+                }
+                temp >>= 1;
+            }
+            table[i] = value;
+        }
+    }
+
+    unsigned short ComputeChecksum(const std::vector<unsigned char>& bytes) {
+        unsigned short crc = 0;
+        for (size_t i = 0; i < bytes.size(); ++i) {
+            unsigned char index = static_cast<unsigned char>(crc ^ bytes[i]);
+            crc = static_cast<unsigned short>((crc >> 8) ^ table[index]);
+        }
+        return crc;
+    }
+
+    std::vector<unsigned char> ComputeChecksumBytes(const std::vector<unsigned char>& bytes) {
+        unsigned short crc = ComputeChecksum(bytes);
+        return { static_cast<unsigned char>(crc & 0xFF), static_cast<unsigned char>((crc >> 8) & 0xFF) };
+    }
+};
 
 class SerialReaderWriter {
 public:
@@ -70,9 +115,9 @@ public:
     void on_timer() {
         if (running) {
             // Calculate generation	
-	        calc_current(threePhases);
-            send_data();
+	        calc_current(threePhases);            
             display_table();
+			send_data();
             timer.expires_at(timer.expires_at() + boost::posix_time::seconds(10));
             start_timer();
         }
@@ -187,7 +232,7 @@ public:
         stringstream modified_telegram;
 
         // Construct the telegram with updated values
-        modified_telegram << "/XMX5LGF0010455445332\r\n"
+        modified_telegram << "/XMX5LGF0010455445332\r\n\r\n"
                           << "1-3:0.2.8(" << value_0_2_8 << ")\r\n"
                           << "0-0:1.0.0(" << value_1_0_0 << ")\r\n"
                           << "0-0:96.1.1(" << value_96_1_1 << ")\r\n"
@@ -223,14 +268,26 @@ public:
 
         // Calculate CRC16 checksum for the message
         string telegram_body = modified_telegram.str();
-        uint16_t crc = calculate_crc16(telegram_body);
+        /* uint16_t crc = calculate_crc16(telegram_body);
         stringstream checksum_stream;
         checksum_stream << hex << uppercase << crc;
         string checksum = checksum_stream.str();
 
         // Add checksum to the telegram
-        telegram_body += checksum + "\r\n";
+        telegram_body += checksum + "\r\n";*/
+        std::vector<unsigned char> bytes(telegram_body.begin(), telegram_body.end());
 
+		// Bereken de CRC16 checksum
+		Crc16 crc16;
+		unsigned short checksum = crc16.ComputeChecksum(bytes);
+
+		// Zet de checksum om naar een hexadecimale string
+		std::stringstream ss;
+		ss << std::setw(4) << std::setfill('0') << std::hex << std::uppercase << checksum;
+
+		// Voeg de checksum en CRLF toe aan het telegram
+		telegram_body += ss.str() + "\r\n";
+		cout << telegram_body << endl;
         // Send the telegram
         async_write(serial_write, buffer(telegram_body), [](boost::system::error_code ec, std::size_t length) {
             if (ec) {
