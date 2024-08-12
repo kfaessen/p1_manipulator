@@ -125,8 +125,9 @@ public:
 
     void process_received_data(const string& data) {
         smatch match;
-
+        
         // Regular expressions to extract the additional values
+		regex regex_id(R"(/(.*)\r\n)");
         regex regex_0_2_8(R"(1-3:0\.2\.8\(([\d\.]+)\))");
         regex regex_1_0_0(R"(0-0:1\.0\.0\(([\d\.]+[SW])\))");
         regex regex_96_1_1(R"(0-0:96\.1\.1\(([\d\.]+)\))");
@@ -160,6 +161,7 @@ public:
         regex regex_62_7_0(R"(1-0:62\.7\.0\(([\d\.]+)\*kW\))");
 
         // Extract additional values and store them in variables
+		if (regex_search(data, match, value_id)) value_id = match[1];
         if (regex_search(data, match, regex_0_2_8)) value_0_2_8 = stod(match[1]);
         if (regex_search(data, match, regex_1_0_0)) value_1_0_0 = match[1];
         if (regex_search(data, match, regex_96_1_1)) value_96_1_1 = match[1];
@@ -232,7 +234,7 @@ public:
         stringstream modified_telegram;
 
         // Construct the telegram with updated values
-        modified_telegram << "/XMX5LGF0010455445332\r\n\r\n"
+        modified_telegram << "/" << value_id << "\r\n\r\n"
                           << "1-3:0.2.8(" << value_0_2_8 << ")\r\n"
                           << "0-0:1.0.0(" << value_1_0_0 << ")\r\n"
                           << "0-0:96.1.1(" << value_96_1_1 << ")\r\n"
@@ -344,6 +346,7 @@ private:
     bool running;
     bool threePhases = false;
     // Variables to hold the extracted data
+	string value_id = "";
     double value_0_2_8 = 0;
     string value_1_0_0 = "";
     string value_96_1_1 = "";
